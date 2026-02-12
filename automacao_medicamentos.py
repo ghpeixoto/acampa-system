@@ -4,7 +4,7 @@ from twilio.rest import Client
 from datetime import datetime, timedelta
 import pytz
 
-# --- SENHAS DO GITHUB ---
+# --- SENHAS ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 TWILIO_SID = os.environ.get("TWILIO_SID")
@@ -15,51 +15,99 @@ def enviar_alertas_twilio():
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     client = Client(TWILIO_SID, TWILIO_TOKEN)
     
-    # Janela de 10 min (5 min antes até 5 min depois)
-    agora = datetime.now(pytz.timezone('America/Sao_Paulo'))
+    # Fuso Horário Brasil
+    tz_br = pytz.timezone('America/Sao_Paulo')
+    agora = datetime.now(tz_br)
+    
+    # Janela de busca: Agora até +10 minutos
     limite = agora + timedelta(minutes=10)
     
-    print(f"🔎 Buscando remédios até {limite.strftime('%H:%M')}...")
+    print(f"🔎 Buscando remédios entre {agora.strftime('%H:%M')} e {limite.strftime('%H:%M')}...")
 
     # 1. Busca Remédios Pendentes
-    res_med = supabase.table("medicacoes").select("*").eq("status", "Pendente").lte("data_hora_prevista", limite.isoformat()).execute()
+    # Precisamos apenas dos que estão para vencer agora
+    res_med = supabase.table("medicacoes")\
+        .select("*")\
+        .eq("status", "Pendente")\
+        .lte("data_hora_prevista", limite.isoformat())\
+        .execute()
+        
     remedios = res_med.data
     
-    if not remedios: return
+    if not remedios: 
+        print("✅ Nenhum remédio para agora.")
+        return
 
-    # 2. Busca Equipe de Enfermagem
+    # 2. Busca Equipe de Responsáveis
     res_team = supabase.table("equipe_enfermaria").select("*").execute()
     equipe = res_team.data
     
     if not equipe:
-        print("❌ Ninguém na equipe para avisar!")
+        print("❌ Ninguém na lista de responsáveis para receber o aviso!")
         return
 
-    # 3. Dispara Mensagens
+    # 3. Processa e Envia
     for med in remedios:
-        nome_paciente = med['nome_participante']
+        # Pega dados básicos
         remedio = med['nome_medicamento']
         dose = med['dosagem']
-        hora = datetime.fromisoformat(med['data_hora_prevista']).strftime('%H:%M')
+        pid = med['id_participante']
         
+        # Formata Data e Hora
+        data_prevista_utc = datetime.fromisoformat(med['data_hora_prevista'])
+        # Converte para Brasil (caso o banco esteja em UTC)
+        data_prevista_br = data_prevista_utc.astimezone(tz_br)
+        
+        data_str = data_prevista_br.strftime('%d/%m')
+        hora_str = data_prevista_br.strftime('%H:%M')
+
+        # --- BUSCA DADOS ATUALIZADOS DO PARTICIPANTE (QUARTO E LIDER) ---
+        # Isso garante que se ele mudou de quarto, o aviso vai certo
+        try:
+            res_part = supabase.table("participantes")\
+                .select("nome_completo, quartos(nome, nome_lider)")\
+                .eq("id", pid)\
+                .execute()
+                
+            if res_part.data:
+                p = res_part.data[0]
+                nome_teen = p['nome_completo']
+                quarto_dados = p.get('quartos') or {}
+                nome_quarto = quarto_dados.get('nome', 'Sem Quarto')
+                nome_lider = quarto_dados.get('nome_lider', 'Sem Líder')
+            else:
+                nome_teen = med['nome_participante']
+                nome_quarto = "Não encontrado"
+                nome_lider = "-"
+        except:
+            nome_teen = med['nome_participante']
+            nome_quarto = "-"
+            nome_lider = "-"
+
+        # --- MONTA A MENSAGEM NO NOVO MODELO ---
         msg_texto = (
-            f"🚨 *ALERTA ENFERMARIA*\n"
+            f"🚨 *ALERTA REMÉDIO*\n"
             f"💊 *{remedio}* ({dose})\n"
-            f"👤 {nome_paciente}\n"
-            f"⏰ Horário: {hora}\n"
-            f"⚠️ *Entregar Agora!*"
+            f"👤 {nome_teen}\n"
+            f"🛏️ {nome_quarto}\n"
+            f"🛡️ {nome_lider}\n"
+            f"⏰ {data_str} às {hora_str}\n"
+            f"⚠️ *Entregar ao acampante*"
         )
         
-        # Envia para CADA membro da equipe
+        # Envia para TODOS os responsáveis da lista
         for membro in equipe:
-            tel = "".join(filter(str.isdigit, str(membro['telefone'])))
-            if not tel.startswith("55"): tel = "55" + tel
+            tel_cru = str(membro['telefone'])
+            # Limpeza do telefone
+            tel_limpo = "".join(filter(str.isdigit, tel_cru))
+            if not tel_limpo.startswith("55") and len(tel_limpo) > 10: 
+                tel_limpo = "55" + tel_limpo
             
             try:
                 client.messages.create(
                     from_=TWILIO_FROM,
                     body=msg_texto,
-                    to=f"whatsapp:+{tel}"
+                    to=f"whatsapp:+{tel_limpo}"
                 )
                 print(f"Enviado para {membro['nome']}")
             except Exception as e:
