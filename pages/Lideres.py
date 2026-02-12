@@ -22,23 +22,20 @@ st.markdown("""
     [data-testid="stAppViewContainer"] { background-color: #0a192f; color: #e6f1ff; }
     [data-testid="stHeader"] { background-color: #0a192f; }
     
-    /* Inputs */
     .stTextInput input, div[data-baseweb="select"] > div {
         background-color: #172a45 !important; color: white !important; 
         border: 1px solid #00c6ff !important; border-radius: 8px;
     }
     
-    /* CARD ORAÇÃO (ESTILO DE VOLTA) */
     .card-oracao {
         background-color: #112240;
-        border-left: 5px solid #ffd700; /* Borda Dourada */
+        border-left: 5px solid #ffd700;
         padding: 15px;
         border-radius: 10px;
         margin-bottom: 15px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
-    /* Estilo do Expander (A barra do quarto) */
     .streamlit-expanderHeader {
         background-color: #112240;
         border: 1px solid #00c6ff;
@@ -47,7 +44,6 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Botões Gerais */
     div.stButton > button {
         background: linear-gradient(90deg, #00c6ff 0%, #0072ff 100%) !important;
         color: white !important;
@@ -56,7 +52,6 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Botão de Zap */
     a.zap-btn {
         text-decoration: none;
         background-color: #25D366;
@@ -85,18 +80,20 @@ def carregar_dados():
     sb = init_supabase()
     q = sb.table("quartos").select("*").order("nome").execute()
     df_q = pd.DataFrame(q.data)
+    
     p = sb.table("participantes").select("*").order("nome_completo").execute()
     df_p = pd.DataFrame(p.data)
+    
+    if not df_p.empty:
+        if 'sexo' not in df_p.columns: df_p['sexo'] = 'Indefinido'
+        if 'idade' not in df_p.columns: df_p['idade'] = 0
+        if 'tipo_participante' not in df_p.columns: df_p['tipo_participante'] = 'Teen'
+        
     return df_q, df_p
 
 def mover_participante(id_part, id_quarto_destino):
     sb = init_supabase()
     sb.table("participantes").update({"id_quarto": id_quarto_destino}).eq("id", id_part).execute()
-    return True
-
-def remover_do_quarto(id_part):
-    sb = init_supabase()
-    sb.table("participantes").update({"id_quarto": None}).eq("id", id_part).execute()
     return True
 
 def carregar_ficha_resumo(id_part):
@@ -120,19 +117,17 @@ def curtir_oracao(id_oracao, qtd_atual):
     sb.table("oracoes").update({"curtidas": qtd_atual + 1}).eq("id", id_oracao).execute()
     return True
 
-def criar_quarto(nome, lider, tel, time_cor):
+def criar_quarto(nome, lider, tel, time_cor, sexo_quarto):
     sb = init_supabase()
-    dados = {"nome": nome, "nome_lider": lider, "telefone_lider": tel, "time_cor": time_cor}
+    dados = {
+        "nome": nome, 
+        "nome_lider": lider, 
+        "telefone_lider": tel, 
+        "time_cor": time_cor,
+        "sexo": sexo_quarto
+    }
     sb.table("quartos").insert(dados).execute()
     return True
-
-def excluir_quarto(id_quarto):
-    sb = init_supabase()
-    try:
-        sb.table("participantes").update({"id_quarto": None}).eq("id_quarto", id_quarto).execute()
-        sb.table("quartos").delete().eq("id", id_quarto).execute()
-        return True
-    except: return False
 
 def gerar_link_responsavel(nome_lider, nome_teen, tel_resp, tel_emergencia):
     telefone_final = None
@@ -150,14 +145,21 @@ def gerar_link_responsavel(nome_lider, nome_teen, tel_resp, tel_emergencia):
 if 'modo_oracao' not in st.session_state: st.session_state.modo_oracao = False
 
 # HEADER
-c_head, c_busca = st.columns([1, 1])
+c_head, c_busca, c_filtro = st.columns([1, 1, 1])
+
 with c_head: st.markdown("## 🛏️ Quartos")
-placeholder_txt = "🔍 Buscar na Oração..." if st.session_state.modo_oracao else "🔍 Buscar Teen..."
-with c_busca: termo_busca = st.text_input("Busca", placeholder=placeholder_txt, label_visibility="collapsed")
 
 if st.button(f"{'🏠 Voltar aos Quartos' if st.session_state.modo_oracao else '🙏 Mural de Oração'}", use_container_width=True):
     st.session_state.modo_oracao = not st.session_state.modo_oracao
     st.rerun()
+
+placeholder_txt = "🔍 Buscar na Oração..." if st.session_state.modo_oracao else "🔍 Buscar Teen..."
+with c_busca: termo_busca = st.text_input("Busca", placeholder=placeholder_txt, label_visibility="collapsed")
+
+filtro_sexo = "Todos"
+if not st.session_state.modo_oracao:
+    with c_filtro:
+        filtro_sexo = st.selectbox("Filtrar Sexo:", ["Todos", "Masculino", "Feminino"], label_visibility="collapsed")
 
 st.divider()
 
@@ -181,23 +183,27 @@ if st.session_state.modo_oracao:
             with cols[i % 2]:
                 try: dt = pd.to_datetime(row['created_at']).strftime("%d/%m %H:%M")
                 except: dt = "-"
-                
-                # AQUI ESTA O CARD ESTILIZADO
                 st.markdown(f"""
                 <div class="card-oracao">
                     <small style="color:#aaa">📅 {dt}</small><br>
                     <span style="font-size:18px; color:white; font-style:italic">"{row['pedido']}"</span>
                 </div>
                 """, unsafe_allow_html=True)
-                
                 if st.button(f"🙏 Orando ({row['curtidas']})", key=f"pray_{row['id']}", use_container_width=True):
                     curtir_oracao(row['id'], row['curtidas']); st.rerun()
     else: st.write("Nenhum pedido.")
 
-# --- LISTA DE QUARTOS (LAYOUT EXPANDER) ---
+# --- LISTA DE QUARTOS ---
 else:
     df_q, df_p = carregar_dados()
     
+    if filtro_sexo != "Todos" and not df_p.empty:
+        df_p_view = df_p[df_p['sexo'] == filtro_sexo]
+        if not df_q.empty and 'sexo' in df_q.columns:
+            df_q = df_q[df_q['sexo'] == filtro_sexo]
+    else:
+        df_p_view = df_p
+
     ids_quartos_filtrados = None
     if termo_busca and not df_p.empty:
         teens_filtrados = df_p[df_p['nome_completo'].str.contains(termo_busca, case=False, na=False)]
@@ -208,32 +214,32 @@ else:
     if not df_q.empty:
         for idx, row in df_q.iterrows():
             qid = row['id']
-            teens_no_quarto = df_p[df_p['id_quarto'] == qid] if not df_p.empty else pd.DataFrame()
+            teens_no_quarto = df_p_view[df_p_view['id_quarto'] == qid] if not df_p_view.empty else pd.DataFrame()
             qtd = len(teens_no_quarto)
             
             cor_time = row.get('time_cor', '-')
-            label_quarto = f"🏠 {row['nome']}  |  👤 {row['nome_lider']}  |  🛡️ {cor_time}  |  👥 {qtd}"
+            sexo_quarto = row.get('sexo', 'Misto')
+            
+            icone_q = "🏠"
+            if sexo_quarto == "Masculino": icone_q = "🔵"
+            elif sexo_quarto == "Feminino": icone_q = "🌸"
+            
+            label_quarto = f"{icone_q} {row['nome']}  |  👤 {row['nome_lider']}  |  🛡️ {cor_time}  |  👥 {qtd}"
             
             with st.expander(label_quarto, expanded=(ids_quartos_filtrados is not None)): 
                 
-                c_del, _ = st.columns([1, 5])
-                with c_del:
-                    @st.dialog(f"Excluir {row['nome']}?")
-                    def modal_del_room(id_q):
-                        st.warning("Isso deixará os participantes sem quarto.")
-                        if st.button("Confirmar Exclusão"):
-                            excluir_quarto(id_q); st.rerun()
-                    if st.button("🗑️ Apagar Quarto", key=f"del_room_{qid}", type="secondary"):
-                        modal_del_room(qid)
-
-                st.markdown("---")
+                # --- REMOVIDO: Botão de Apagar Quarto ---
 
                 if not teens_no_quarto.empty:
                     for i, teen in teens_no_quarto.iterrows():
-                        c1, c2, c3, c4, c5 = st.columns([2.5, 0.5, 0.8, 0.8, 0.8])
+                        # Ajustado colunas (sem mover e remover)
+                        c1, c2, c3 = st.columns([3, 0.5, 0.5])
+                        
+                        icone_sexo = "👦" if teen.get('sexo') == "Masculino" else "👧"
+                        idade_str = f"({int(teen.get('idade', 0))} anos)" if teen.get('idade') else ""
                         
                         with c1: 
-                            st.markdown(f"**{teen['nome_completo']}**")
+                            st.markdown(f"**{icone_sexo} {teen['nome_completo']} {idade_str}**")
                             st.caption(f"Resp: {teen['nome_responsavel']}")
                         
                         f_resumo = carregar_ficha_resumo(teen['id'])
@@ -265,49 +271,71 @@ else:
                                 else: st.warning("Sem ficha.")
                             
                             if st.button("📋", key=f"btn_f_{teen['id']}", help="Ver Ficha"): modal_ficha(f_resumo, teen['id'])
-
-                        with c4:
-                            @st.dialog(f"Mover {teen['nome_completo']}")
-                            def modal_move(tid):
-                                lst_q = df_q['nome'].tolist()
-                                dest = st.selectbox("Para:", lst_q, key=f"sel_mv_{tid}")
-                                if st.button("Confirmar", key=f"btn_cf_mv_{tid}"):
-                                    id_dest = df_q[df_q['nome'] == dest].iloc[0]['id']
-                                    mover_participante(tid, id_dest); st.rerun()
-                            if st.button("🔄", key=f"btn_m_{teen['id']}", help="Mover de quarto"): modal_move(teen['id'])
-
-                        with c5:
-                            if st.button("❌", key=f"btn_r_{teen['id']}", help="Remover do quarto"):
-                                remover_do_quarto(teen['id']); st.toast("Removido!"); time.sleep(0.5); st.rerun()
+                        
+                        # --- REMOVIDO: Botões de Mover e Remover do Quarto ---
                         
                         st.markdown("<hr style='margin:5px 0; opacity:0.1'>", unsafe_allow_html=True)
                 else:
                     st.info("Quarto vazio.")
 
                 st.caption("➕ Adicionar aqui:")
-                sem_quarto = df_p[pd.isna(df_p['id_quarto'])]
+                
+                # Regra: Teens Sem quarto que sejam do mesmo sexo do quarto
+                sem_quarto = df_p[
+                    (pd.isna(df_p['id_quarto'])) & 
+                    (df_p['tipo_participante'] == 'Teen')
+                ]
+                
+                if sexo_quarto == "Masculino":
+                    sem_quarto = sem_quarto[sem_quarto['sexo'] == 'Masculino']
+                elif sexo_quarto == "Feminino":
+                    sem_quarto = sem_quarto[sem_quarto['sexo'] == 'Feminino']
+                
                 if not sem_quarto.empty:
                     c_add, c_btn = st.columns([3, 1])
                     with c_add:
-                        sel_add = st.selectbox("Selecione:", sem_quarto['nome_completo'].tolist(), key=f"add_sel_{qid}", label_visibility="collapsed")
+                        opcoes_nomes = sem_quarto.apply(lambda x: f"{x['nome_completo']} ({int(x.get('idade',0))}a)", axis=1).tolist()
+                        sel_add_str = st.selectbox("Selecione:", opcoes_nomes, key=f"add_sel_{qid}", label_visibility="collapsed")
                     with c_btn:
                         if st.button("Add", key=f"btn_add_{qid}"):
-                            pid_add = sem_quarto[sem_quarto['nome_completo'] == sel_add].iloc[0]['id']
+                            nome_real = sel_add_str.split(" (")[0]
+                            pid_add = sem_quarto[sem_quarto['nome_completo'] == nome_real].iloc[0]['id']
                             mover_participante(pid_add, qid); st.rerun()
                 else:
-                    st.success("Todos alocados!")
+                    if sexo_quarto in ["Masculino", "Feminino"]:
+                        st.info(f"Sem teens ({sexo_quarto}) disponíveis.")
+                    else:
+                        st.success("Todos alocados!")
 
     else:
-        st.info("Nenhum quarto cadastrado.")
+        st.info("Nenhum quarto cadastrado ou encontrado no filtro.")
 
     st.divider()
     with st.expander("➕ CADASTRAR NOVO QUARTO"):
         with st.form("new_room"):
             c1, c2 = st.columns(2)
             n_nome = c1.text_input("Nome Quarto")
-            n_lider = c2.text_input("Nome Líder")
+            
+            lista_servos = []
+            if not df_p.empty:
+                servos_df = df_p[df_p['tipo_participante'].str.contains("Servo", case=False, na=False)]
+                lista_servos = servos_df['nome_completo'].unique().tolist()
+            
+            n_lider = c2.selectbox("Selecione o Líder (Servo):", lista_servos)
+            
             c3, c4 = st.columns(2)
-            n_tel = c3.text_input("Zap Líder")
+            n_sexo = c3.selectbox("Gênero do Quarto", ["Masculino", "Feminino"])
             n_time = c4.selectbox("Time", ["Roxo", "Verde"])
+            
             if st.form_submit_button("Salvar Quarto"):
-                criar_quarto(n_nome, n_lider, n_tel, n_time); st.rerun()
+                if n_nome and n_lider:
+                    n_tel_auto = ""
+                    try:
+                        dados_servo = servos_df[servos_df['nome_completo'] == n_lider].iloc[0]
+                        n_tel_auto = dados_servo.get('celular_responsavel', '')
+                    except: pass
+                    
+                    criar_quarto(n_nome, n_lider, n_tel_auto, n_time, n_sexo)
+                    st.success("Quarto Criado!"); time.sleep(1); st.rerun()
+                else:
+                    st.error("Preencha Nome e Líder.")
