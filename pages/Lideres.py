@@ -85,12 +85,11 @@ def carregar_dados():
     df_p = pd.DataFrame(p.data)
     
     if not df_p.empty:
-        # Garante que colunas existam
+        # Garante colunas
         if 'sexo' not in df_p.columns: df_p['sexo'] = 'Indefinido'
         if 'tipo_participante' not in df_p.columns: df_p['tipo_participante'] = 'Teen'
         
-        # --- CORREÇÃO DO ERRO ---
-        # Se a coluna idade existe, preenche vazios (NaN) com 0 e converte para Inteiro
+        # Trata idade (NaN -> 0)
         if 'idade' in df_p.columns:
             df_p['idade'] = df_p['idade'].fillna(0).astype(int)
         else:
@@ -234,16 +233,12 @@ else:
             label_quarto = f"{icone_q} {row['nome']}  |  👤 {row['nome_lider']}  |  🛡️ {cor_time}  |  👥 {qtd}"
             
             with st.expander(label_quarto, expanded=(ids_quartos_filtrados is not None)): 
-                
-                # --- REMOVIDO: Botão de Apagar Quarto ---
 
                 if not teens_no_quarto.empty:
                     for i, teen in teens_no_quarto.iterrows():
                         c1, c2, c3 = st.columns([3, 0.5, 0.5])
                         
                         icone_sexo = "👦" if teen.get('sexo') == "Masculino" else "👧"
-                        
-                        # Idade já foi tratada no carregamento, então é seguro usar
                         idade_val = teen.get('idade', 0)
                         idade_str = f"({idade_val} anos)" if idade_val > 0 else ""
                         
@@ -281,8 +276,6 @@ else:
                             
                             if st.button("📋", key=f"btn_f_{teen['id']}", help="Ver Ficha"): modal_ficha(f_resumo, teen['id'])
                         
-                        # --- REMOVIDO: Botões de Mover e Remover do Quarto ---
-                        
                         st.markdown("<hr style='margin:5px 0; opacity:0.1'>", unsafe_allow_html=True)
                 else:
                     st.info("Quarto vazio.")
@@ -302,14 +295,22 @@ else:
                 
                 if not sem_quarto.empty:
                     c_add, c_btn = st.columns([3, 1])
+                    
+                    # --- CORREÇÃO DO ERRO INDEX ERROR ---
+                    # Cria um dicionário { "Nome (Idade)": ID_REAL }
+                    mapa_teens = {}
+                    for idx_sq, row_sq in sem_quarto.iterrows():
+                         label = f"{row_sq['nome_completo']} ({int(row_sq.get('idade',0))}a)"
+                         mapa_teens[label] = row_sq['id']
+                    
                     with c_add:
-                        # Lambda segura agora que já tratamos NaN na carga
-                        opcoes_nomes = sem_quarto.apply(lambda x: f"{x['nome_completo']} ({int(x.get('idade',0))}a)", axis=1).tolist()
-                        sel_add_str = st.selectbox("Selecione:", opcoes_nomes, key=f"add_sel_{qid}", label_visibility="collapsed")
+                        # O selectbox mostra os nomes, mas nós vamos usar o mapa para pegar o ID depois
+                        sel_nome_display = st.selectbox("Selecione:", list(mapa_teens.keys()), key=f"add_sel_{qid}", label_visibility="collapsed")
+                    
                     with c_btn:
                         if st.button("Add", key=f"btn_add_{qid}"):
-                            nome_real = sel_add_str.split(" (")[0]
-                            pid_add = sem_quarto[sem_quarto['nome_completo'] == nome_real].iloc[0]['id']
+                            # Pega o ID direto do dicionário, sem precisar filtrar o DataFrame de novo
+                            pid_add = mapa_teens[sel_nome_display]
                             mover_participante(pid_add, qid); st.rerun()
                 else:
                     if sexo_quarto in ["Masculino", "Feminino"]:
