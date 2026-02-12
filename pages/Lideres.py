@@ -85,9 +85,16 @@ def carregar_dados():
     df_p = pd.DataFrame(p.data)
     
     if not df_p.empty:
+        # Garante que colunas existam
         if 'sexo' not in df_p.columns: df_p['sexo'] = 'Indefinido'
-        if 'idade' not in df_p.columns: df_p['idade'] = 0
         if 'tipo_participante' not in df_p.columns: df_p['tipo_participante'] = 'Teen'
+        
+        # --- CORREÇÃO DO ERRO ---
+        # Se a coluna idade existe, preenche vazios (NaN) com 0 e converte para Inteiro
+        if 'idade' in df_p.columns:
+            df_p['idade'] = df_p['idade'].fillna(0).astype(int)
+        else:
+            df_p['idade'] = 0
         
     return df_q, df_p
 
@@ -232,11 +239,13 @@ else:
 
                 if not teens_no_quarto.empty:
                     for i, teen in teens_no_quarto.iterrows():
-                        # Ajustado colunas (sem mover e remover)
                         c1, c2, c3 = st.columns([3, 0.5, 0.5])
                         
                         icone_sexo = "👦" if teen.get('sexo') == "Masculino" else "👧"
-                        idade_str = f"({int(teen.get('idade', 0))} anos)" if teen.get('idade') else ""
+                        
+                        # Idade já foi tratada no carregamento, então é seguro usar
+                        idade_val = teen.get('idade', 0)
+                        idade_str = f"({idade_val} anos)" if idade_val > 0 else ""
                         
                         with c1: 
                             st.markdown(f"**{icone_sexo} {teen['nome_completo']} {idade_str}**")
@@ -294,6 +303,7 @@ else:
                 if not sem_quarto.empty:
                     c_add, c_btn = st.columns([3, 1])
                     with c_add:
+                        # Lambda segura agora que já tratamos NaN na carga
                         opcoes_nomes = sem_quarto.apply(lambda x: f"{x['nome_completo']} ({int(x.get('idade',0))}a)", axis=1).tolist()
                         sel_add_str = st.selectbox("Selecione:", opcoes_nomes, key=f"add_sel_{qid}", label_visibility="collapsed")
                     with c_btn:
