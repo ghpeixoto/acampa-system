@@ -20,7 +20,7 @@ except:
     SUPABASE_KEY = "sb_secret_BcGLoGEXRfVMA-ajLuqhdw_0zlAFUmn"
 
 # =======================================================
-# 2. BLOQUEIO DE SEGURANÇA (NOVA FUNCIONALIDADE)
+# 2. BLOQUEIO DE SEGURANÇA
 # =======================================================
 if 'cantina_liberada' not in st.session_state:
     st.session_state.cantina_liberada = False
@@ -52,11 +52,7 @@ if not st.session_state.cantina_liberada:
                 else:
                     st.error("🚫 Código Incorreto!")
     
-    st.stop() # PARA O CÓDIGO AQUI SE NÃO TIVER SENHA
-
-# =======================================================
-# DAQUI PARA BAIXO, SÓ CARREGA SE A SENHA ESTIVER CERTA
-# =======================================================
+    st.stop() 
 
 # =======================================================
 # 3. ESTILO VISUAL E FUNÇÕES AUXILIARES
@@ -208,32 +204,51 @@ def gerar_msg_zap(id_part, nome, nome_resp, tel_resp, tipo, saldo_atual, saldo_i
 
     return f"https://wa.me/55{tel_limpo}?text={quote(msg)}"
 
-# Funções Banco
-def cadastrar_participante(nome, resp, cel, tipo, saldo_inicial, operador):
+# Funções Banco - ATUALIZADAS COM SEXO E IDADE
+def cadastrar_participante(nome, resp, cel, tipo, sexo, idade, saldo_inicial, operador):
     supabase = init_supabase()
     try:
         res = supabase.table("participantes").insert({
-            "nome_completo": nome, "nome_responsavel": resp, "celular_responsavel": cel,
-            "tipo_participante": tipo, "saldo_inicial": 0
+            "nome_completo": nome, 
+            "nome_responsavel": resp, 
+            "celular_responsavel": cel,
+            "tipo_participante": tipo, 
+            "sexo": sexo,
+            "idade": int(idade),
+            "saldo_inicial": 0
         }).execute()
+        
         if res.data and saldo_inicial > 0:
             dh = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             supabase.table("transacoes").insert({
-                "id_participante": res.data[0]['id'], "nome_participante": nome, "data_hora": dh,
-                "item_descricao": "Saldo Inicial (Cadastro)", "valor": float(saldo_inicial), "tipo": "Entrada", "operador": operador
+                "id_participante": res.data[0]['id'], 
+                "nome_participante": nome, 
+                "data_hora": dh,
+                "item_descricao": "Saldo Inicial (Cadastro)", 
+                "valor": float(saldo_inicial), 
+                "tipo": "Entrada", 
+                "operador": operador
             }).execute()
         return True
-    except: return False
+    except Exception as e: 
+        st.error(f"Erro ao cadastrar: {e}")
+        return False
 
-def atualizar_participante(id_part, nome, resp, cel, tipo):
+def atualizar_participante(id_part, nome, resp, cel, tipo, sexo, idade):
     supabase = init_supabase()
     try:
         supabase.table("participantes").update({
-            "nome_completo": nome, "nome_responsavel": resp, 
-            "celular_responsavel": cel, "tipo_participante": tipo
+            "nome_completo": nome, 
+            "nome_responsavel": resp, 
+            "celular_responsavel": cel, 
+            "tipo_participante": tipo,
+            "sexo": sexo,
+            "idade": int(idade)
         }).eq("id", id_part).execute()
         return True
-    except: return False
+    except Exception as e:
+        st.error(f"Erro ao atualizar: {e}")
+        return False
 
 def excluir_participante_db(id_part):
     supabase = init_supabase()
@@ -275,18 +290,13 @@ def salvar_recarga(id_part, nome, valor, forma, obs, operador):
     except: return False
 
 def calcular_vendidos(df_prod, df_trans):
-    # CORREÇÃO: Garante que a coluna 'Vendidos' exista mesmo se não houver transações
     df_prod['Vendidos'] = 0 
-    
-    if df_prod.empty or df_trans.empty: 
-        return df_prod
-        
+    if df_prod.empty or df_trans.empty: return df_prod
     vendas = df_trans[df_trans['valor'] < 0]['item_descricao'].fillna("").tolist()
     contagem = {p: 0 for p in df_prod['Produto']}
     for desc in vendas:
         for prod in contagem: 
             contagem[prod] += desc.count(prod)
-    
     df_prod['Vendidos'] = df_prod['Produto'].map(contagem).fillna(0)
     return df_prod
 
@@ -297,6 +307,11 @@ df_part, df_prod, df_trans = carregar_dados_gerais()
 
 if not df_part.empty:
     df_part.rename(columns={'id': 'ID', 'nome_completo': 'Nome', 'nome_responsavel': 'Resp', 'celular_responsavel': 'Cel'}, inplace=True)
+    # Garante que as colunas novas existam no DF para não dar erro
+    if 'sexo' not in df_part.columns: df_part['sexo'] = 'Indefinido'
+    if 'idade' not in df_part.columns: df_part['idade'] = 0
+    df_part['idade'] = df_part['idade'].fillna(0).astype(int)
+
 if not df_prod.empty:
     df_prod.rename(columns={'id': 'ID', 'nome': 'Produto', 'preco': 'Preco', 'estoque': 'Estoque'}, inplace=True)
 
@@ -309,22 +324,33 @@ if not df_part.empty and not df_trans.empty:
     dict_depositos = depositos_series.to_dict()
 
 # =======================================================
-# 6. MODAIS
+# 6. MODAIS (ATUALIZADO COM SEXO E IDADE)
 # =======================================================
 @st.dialog("✏️ Editar Participante")
-def modal_editar(id_part, nome_atual, resp_atual, cel_atual, tipo_atual):
+def modal_editar(id_part, nome_atual, resp_atual, cel_atual, tipo_atual, sexo_atual, idade_atual):
     st.write(f"Editando: **{nome_atual}**")
+    
     n_nome = st.text_input("Nome", value=nome_atual)
+    
+    # Sexo e Idade
+    c_s, c_i = st.columns(2)
+    opcoes_sexo = ["Masculino", "Feminino"]
+    idx_sexo = opcoes_sexo.index(sexo_atual) if sexo_atual in opcoes_sexo else 0
+    n_sexo = c_s.selectbox("Sexo", opcoes_sexo, index=idx_sexo)
+    n_idade = c_i.number_input("Idade", min_value=0, value=int(idade_atual) if idade_atual else 0, step=1)
+    
     n_resp = st.text_input("Responsável", value=resp_atual)
     n_cel = st.text_input("Celular", value=cel_atual)
+    
     idx_tipo = 0
-    opcoes = ["Teen", "Servo"]
-    if tipo_atual in opcoes: idx_tipo = opcoes.index(tipo_atual)
-    n_tipo = st.selectbox("Tipo", opcoes, index=idx_tipo)
+    opcoes_tipo = ["Teen", "Servo"]
+    if tipo_atual in opcoes_tipo: idx_tipo = opcoes_tipo.index(tipo_atual)
+    n_tipo = st.selectbox("Tipo", opcoes_tipo, index=idx_tipo)
+    
     st.write("")
     if st.button("💾 SALVAR", type="primary"):
         with st.spinner("..."):
-            if atualizar_participante(id_part, n_nome, n_resp, n_cel, n_tipo):
+            if atualizar_participante(id_part, n_nome, n_resp, n_cel, n_tipo, n_sexo, n_idade):
                 st.success("Salvo!"); st.cache_data.clear(); time.sleep(1); st.rerun()
 
 @st.dialog("💸 Devolver Saldo")
@@ -343,7 +369,7 @@ def modal_devolver(id_part, nome, saldo_atual):
 st.sidebar.markdown("## 🏕️ Cantina")
 menu = st.sidebar.radio("Menu", ["📊 Dashboard", "🍔 Nova Venda", "💰 Recarga", "📦 Estoque", "📄 Extrato", "👥 Participantes"])
 st.sidebar.markdown("---")
-# Botão para Sair e Bloquear de novo
+# Botão para Sair
 if st.sidebar.button("🔒 Bloquear"):
     st.session_state.cantina_liberada = False
     st.rerun()
@@ -561,11 +587,19 @@ elif menu == "👥 Participantes":
     with st.expander("➕ Adicionar Novo"):
         with st.form("add"):
             c1, c2 = st.columns(2); nm = c1.text_input("Nome"); rs = c2.text_input("Responsável")
+            
+            # NOVAS COLUNAS: SEXO E IDADE
+            c_sex, c_age = st.columns(2)
+            sex = c_sex.selectbox("Sexo", ["Masculino", "Feminino"])
+            age = c_age.number_input("Idade", min_value=0, step=1)
+            
             c3, c4 = st.columns(2); cl = c3.text_input("Celular"); tp = c4.selectbox("Tipo", ["Teen", "Servo"])
             sd = st.number_input("Depósito Inicial", min_value=0.0)
+            
             if st.form_submit_button("Salvar"):
                 if nm: 
-                    if cadastrar_participante(nm, rs, cl, tp, sd, "Admin"): st.success("OK!"); time.sleep(1); st.rerun()
+                    # Passando sexo e idade para a função
+                    if cadastrar_participante(nm, rs, cl, tp, sex, age, sd, "Admin"): st.success("OK!"); time.sleep(1); st.rerun()
                 else: st.error("Nome obrigatório")
     
     st.divider()
@@ -595,7 +629,16 @@ elif menu == "👥 Participantes":
                     except: d_str = last_dev['data_hora']
                     txt_dev = f"↩️ Devolvido: {fmt_real(v_dev)} em {d_str}"
 
-            ld.append({"ID": pid, "Nome": r['Nome'], "Tipo": r.get('tipo_participante','Teen'), "Resp": r['Resp'], "Cel": r['Cel'], "Ent": ent, "Sai": abs(gas), "Sal": ent+gas, "MsgDev": txt_dev})
+            ld.append({
+                "ID": pid, 
+                "Nome": r['Nome'], 
+                "Tipo": r.get('tipo_participante','Teen'), 
+                "Sexo": r.get('sexo', '-'),
+                "Idade": r.get('idade', 0),
+                "Resp": r['Resp'], 
+                "Cel": r['Cel'], 
+                "Ent": ent, "Sai": abs(gas), "Sal": ent+gas, "MsgDev": txt_dev
+            })
     
     dfs = pd.DataFrame(ld)
     if not dfs.empty:
@@ -605,7 +648,10 @@ elif menu == "👥 Participantes":
         for i, r in dfs.iterrows():
             with st.container():
                 k1,k2,k3,k4,k5,k6 = st.columns([2.5, 1, 1, 1.5, 1.5, 1.5])
-                with k1: st.write(f"**{r['Nome']}**"); st.caption(r['Tipo'])
+                with k1: 
+                    st.write(f"{r['Nome']}")
+                    # Mostra idade ao lado do tipo
+                    st.caption(f"{r['Tipo']} | {int(r['Idade'])} anos | {r['Sexo']}")
                 with k2: st.write(f"<span style='color:green'>{fmt_real(r['Ent'])}</span>", unsafe_allow_html=True)
                 with k3: st.write(f"<span style='color:red'>{fmt_real(r['Sai'])}</span>", unsafe_allow_html=True)
                 with k4: 
@@ -616,7 +662,9 @@ elif menu == "👥 Participantes":
                 with k6:
                     a1, a2, a3 = st.columns(3)
                     with a1:
-                        if st.button("✏️", key=f"e_{r['ID']}", type="secondary", help="Editar"): modal_editar(r['ID'], r['Nome'], r['Resp'], r['Cel'], r['Tipo'])
+                        # Passando sexo e idade para o modal de editar
+                        if st.button("✏️", key=f"e_{r['ID']}", type="secondary", help="Editar"): 
+                            modal_editar(r['ID'], r['Nome'], r['Resp'], r['Cel'], r['Tipo'], r['Sexo'], r['Idade'])
                     with a2:
                         if st.button("🗑️", key=f"d_{r['ID']}", type="secondary", help="Excluir"):
                             if excluir_participante_db(r['ID']): st.toast("Tchau!"); time.sleep(1); st.rerun()
