@@ -36,12 +36,15 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
-    .streamlit-expanderHeader {
+    .room-header {
         background-color: #112240;
         border: 1px solid #00c6ff;
-        border-radius: 8px;
-        color: white;
-        font-weight: bold;
+        border-radius: 10px;
+        padding: 10px 15px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
     }
     
     div.stButton > button {
@@ -50,6 +53,11 @@ st.markdown("""
         border: none;
         border-radius: 50px;
         font-weight: bold;
+    }
+    
+    div.stButton > button[kind="secondary"] {
+        background: #2a3b55 !important;
+        border: 1px solid #aaa !important;
     }
     
     a.zap-btn {
@@ -85,11 +93,8 @@ def carregar_dados():
     df_p = pd.DataFrame(p.data)
     
     if not df_p.empty:
-        # Garante colunas
         if 'sexo' not in df_p.columns: df_p['sexo'] = 'Indefinido'
         if 'tipo_participante' not in df_p.columns: df_p['tipo_participante'] = 'Teen'
-        
-        # Trata idade (NaN -> 0)
         if 'idade' in df_p.columns:
             df_p['idade'] = df_p['idade'].fillna(0).astype(int)
         else:
@@ -149,6 +154,9 @@ def gerar_link_responsavel(nome_lider, nome_teen, tel_resp, tel_emergencia):
 # 3. INTERFACE
 # =======================================================
 if 'modo_oracao' not in st.session_state: st.session_state.modo_oracao = False
+if 'quarto_aberto' not in st.session_state: st.session_state.quarto_aberto = None
+
+df_q, df_p = carregar_dados() # Carregamos aqui em cima para usar na busca
 
 # HEADER
 c_head, c_busca, c_filtro = st.columns([1, 1, 1])
@@ -159,8 +167,27 @@ if st.button(f"{'🏠 Voltar aos Quartos' if st.session_state.modo_oracao else '
     st.session_state.modo_oracao = not st.session_state.modo_oracao
     st.rerun()
 
-placeholder_txt = "🔍 Buscar na Oração..." if st.session_state.modo_oracao else "🔍 Buscar Teen..."
-with c_busca: termo_busca = st.text_input("Busca", placeholder=placeholder_txt, label_visibility="collapsed")
+# --- LÓGICA DE BUSCA ALTERADA ---
+termo_busca_oracao = ""
+busca_teen_selecionado = "🔍 Buscar Teen..."
+mapa_busca_teens = {} # Nome -> ID Quarto
+
+with c_busca: 
+    if st.session_state.modo_oracao:
+        # Se for oração, mantém texto
+        termo_busca_oracao = st.text_input("Busca", placeholder="🔍 Buscar na Oração...", label_visibility="collapsed")
+    else:
+        # Se for quartos, vira SELECTBOX
+        lista_opcoes = ["🔍 Buscar Teen..."]
+        if not df_p.empty:
+            # Filtra apenas Teens para a busca
+            df_teens_busca = df_p[df_p['tipo_participante'] == 'Teen'].sort_values('nome_completo')
+            for idx, row in df_teens_busca.iterrows():
+                label = f"{row['nome_completo']} ({int(row.get('idade',0))}a)"
+                lista_opcoes.append(label)
+                mapa_busca_teens[label] = row.get('id_quarto') # Guarda o ID do quarto
+        
+        busca_teen_selecionado = st.selectbox("Busca", options=lista_opcoes, label_visibility="collapsed")
 
 filtro_sexo = "Todos"
 if not st.session_state.modo_oracao:
@@ -180,8 +207,8 @@ if st.session_state.modo_oracao:
     
     st.markdown("---")
     df_oracoes = carregar_oracoes()
-    if not df_oracoes.empty and termo_busca:
-        df_oracoes = df_oracoes[df_oracoes['pedido'].str.contains(termo_busca, case=False, na=False)]
+    if not df_oracoes.empty and termo_busca_oracao:
+        df_oracoes = df_oracoes[df_oracoes['pedido'].str.contains(termo_busca_oracao, case=False, na=False)]
     
     if not df_oracoes.empty:
         cols = st.columns(2)
@@ -199,10 +226,9 @@ if st.session_state.modo_oracao:
                     curtir_oracao(row['id'], row['curtidas']); st.rerun()
     else: st.write("Nenhum pedido.")
 
-# --- LISTA DE QUARTOS ---
+# --- LISTA DE QUARTOS (OTIMIZADA) ---
 else:
-    df_q, df_p = carregar_dados()
-    
+    # 1. Filtros
     if filtro_sexo != "Todos" and not df_p.empty:
         df_p_view = df_p[df_p['sexo'] == filtro_sexo]
         if not df_q.empty and 'sexo' in df_q.columns:
@@ -210,130 +236,142 @@ else:
     else:
         df_p_view = df_p
 
-    ids_quartos_filtrados = None
-    if termo_busca and not df_p.empty:
-        teens_filtrados = df_p[df_p['nome_completo'].str.contains(termo_busca, case=False, na=False)]
-        ids_quartos_filtrados = teens_filtrados['id_quarto'].unique()
-        df_q = df_q[df_q['id'].isin(ids_quartos_filtrados)]
-        if df_q.empty: st.warning(f"Nenhum quarto encontrado com '{termo_busca}'.")
+    # 2. Lógica de Busca via Selectbox
+    # Se alguém foi selecionado, filtramos apenas o quarto dele e abrimos
+    quarto_destaque_id = None
+    
+    if busca_teen_selecionado != "🔍 Buscar Teen...":
+        quarto_encontrado = mapa_busca_teens.get(busca_teen_selecionado)
+        
+        if pd.isna(quarto_encontrado) or not quarto_encontrado:
+            st.warning(f"Opa! {busca_teen_selecionado} ainda não tem quarto definido.")
+            df_q = pd.DataFrame() # Esconde quartos
+        else:
+            # Filtra apenas o quarto encontrado
+            df_q = df_q[df_q['id'] == quarto_encontrado]
+            quarto_destaque_id = quarto_encontrado
+            # Força abrir esse quarto
+            st.session_state.quarto_aberto = quarto_encontrado
 
     if not df_q.empty:
         for idx, row in df_q.iterrows():
             qid = row['id']
+            # Pega participantes (apenas cálculo de quantidade)
             teens_no_quarto = df_p_view[df_p_view['id_quarto'] == qid] if not df_p_view.empty else pd.DataFrame()
             qtd = len(teens_no_quarto)
             
             cor_time = row.get('time_cor', '-')
             sexo_quarto = row.get('sexo', 'Misto')
+            icone_q = "🔵" if sexo_quarto == "Masculino" else ("🌸" if sexo_quarto == "Feminino" else "🏠")
             
-            icone_q = "🏠"
-            if sexo_quarto == "Masculino": icone_q = "🔵"
-            elif sexo_quarto == "Feminino": icone_q = "🌸"
+            col_resumo, col_btn = st.columns([5, 1])
+            esta_aberto = (st.session_state.quarto_aberto == qid)
+            destaque = "border: 2px solid #ffd700;" if (quarto_destaque_id == qid) else "border: 1px solid #00c6ff;"
             
-            label_quarto = f"{icone_q} {row['nome']}  |  👤 {row['nome_lider']}  |  🛡️ {cor_time}  |  👥 {qtd}"
+            with col_resumo:
+                st.markdown(f"""
+                <div style="background-color: #112240; {destaque} border-radius: 10px; padding: 10px; display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size:16px; font-weight:bold; color:white;">{icone_q} {row['nome']}</span>
+                    <span style="color:#ddd; font-size:14px;">👤 {row['nome_lider']}</span>
+                    <span style="background-color:#0072ff; padding:2px 8px; border-radius:10px; color:white; font-size:12px;">👥 {qtd}</span>
+                </div>
+                """, unsafe_allow_html=True)
             
-            with st.expander(label_quarto, expanded=(ids_quartos_filtrados is not None)): 
+            with col_btn:
+                lbl_btn = "📂 Abrir" if not esta_aberto else "❌ Fechar"
+                tipo_btn = "primary" if not esta_aberto else "secondary"
+                if st.button(lbl_btn, key=f"toggle_{qid}", use_container_width=True, type=tipo_btn):
+                    if esta_aberto: st.session_state.quarto_aberto = None
+                    else: st.session_state.quarto_aberto = qid
+                    st.rerun()
 
-                if not teens_no_quarto.empty:
-                    for i, teen in teens_no_quarto.iterrows():
-                        c1, c2, c3 = st.columns([3, 0.5, 0.5])
-                        
-                        icone_sexo = "👦" if teen.get('sexo') == "Masculino" else "👧"
-                        idade_val = teen.get('idade', 0)
-                        idade_str = f"({idade_val} anos)" if idade_val > 0 else ""
-                        
-                        with c1: 
-                            st.markdown(f"**{icone_sexo} {teen['nome_completo']} {idade_str}**")
-                            st.caption(f"Resp: {teen['nome_responsavel']}")
-                        
-                        f_resumo = carregar_ficha_resumo(teen['id'])
-                        tel_emerg = f_resumo.get('emergencia_tel') if f_resumo else None
-                        link_zap = gerar_link_responsavel(row['nome_lider'], teen['nome_completo'], teen['celular_responsavel'], tel_emerg)
-                        with c2:
-                            if link_zap: st.markdown(f"<a href='{link_zap}' target='_blank' class='zap-btn'>💬</a>", unsafe_allow_html=True)
-
-                        with c3:
-                            @st.dialog(f"Ficha: {teen['nome_completo']}")
-                            def modal_ficha(f, tid):
-                                if f:
-                                    alerg_g = f.get('desc_alergia') if f.get('tem_alergia') else "Não"
-                                    alerg_m = f.get('desc_alergia_med') if f.get('tem_alergia_med') else "Não"
-                                    st.markdown(f"🚨 **Alergia:** {alerg_g}")
-                                    st.markdown(f"💊 **Med:** {alerg_m}")
-                                    st.markdown("---")
-                                    conds = [k.replace('cond_', '').title() for k, v in f.items() if k.startswith('cond_') and v is True]
-                                    if f.get('cond_outra'): conds.append(f.get('cond_outra'))
-                                    st.markdown(f"🏥 **Saúde:** {', '.join(conds) if conds else 'Ok'}")
-                                    st.markdown(f"💉 **Tratamento:** {f.get('tratamento_condicao','-')}")
-                                    st.markdown("---")
-                                    outros = []
-                                    if f.get('e_sonambulo'): outros.append("Sonâmbulo")
-                                    if f.get('tem_enurese'): outros.append("Enurese")
-                                    st.markdown(f"⚠️ **Outros:** {', '.join(outros) if outros else '-'}")
-                                    st.markdown(f"🚫 **Restrição:** {f.get('desc_restricao_fisica') if f.get('tem_restricao_fisica') else '-'}")
-                                    st.write(f"🚑 **Emergência:** {f.get('emergencia_nome','-')} {f.get('emergencia_tel','-')}")
-                                else: st.warning("Sem ficha.")
+            if esta_aberto:
+                with st.container():
+                    st.info(f"Gerenciando: {row['nome']}")
+                    
+                    if not teens_no_quarto.empty:
+                        for i, teen in teens_no_quarto.iterrows():
+                            c1, c2, c3 = st.columns([3, 0.5, 0.5])
+                            icone_sexo = "👦" if teen.get('sexo') == "Masculino" else "👧"
+                            idade_val = teen.get('idade', 0)
+                            idade_str = f"({idade_val} anos)" if idade_val > 0 else ""
                             
-                            if st.button("📋", key=f"btn_f_{teen['id']}", help="Ver Ficha"): modal_ficha(f_resumo, teen['id'])
-                        
-                        st.markdown("<hr style='margin:5px 0; opacity:0.1'>", unsafe_allow_html=True)
-                else:
-                    st.info("Quarto vazio.")
+                            with c1: 
+                                st.markdown(f"**{icone_sexo} {teen['nome_completo']} {idade_str}**")
+                                st.caption(f"Resp: {teen['nome_responsavel']}")
+                            
+                            f_resumo = carregar_ficha_resumo(teen['id'])
+                            tel_emerg = f_resumo.get('emergencia_tel') if f_resumo else None
+                            link_zap = gerar_link_responsavel(row['nome_lider'], teen['nome_completo'], teen['celular_responsavel'], tel_emerg)
+                            with c2:
+                                if link_zap: st.markdown(f"<a href='{link_zap}' target='_blank' class='zap-btn'>💬</a>", unsafe_allow_html=True)
 
-                st.caption("➕ Adicionar aqui:")
-                
-                # Regra: Teens Sem quarto que sejam do mesmo sexo do quarto
-                sem_quarto = df_p[
-                    (pd.isna(df_p['id_quarto'])) & 
-                    (df_p['tipo_participante'] == 'Teen')
-                ]
-                
-                if sexo_quarto == "Masculino":
-                    sem_quarto = sem_quarto[sem_quarto['sexo'] == 'Masculino']
-                elif sexo_quarto == "Feminino":
-                    sem_quarto = sem_quarto[sem_quarto['sexo'] == 'Feminino']
-                
-                if not sem_quarto.empty:
-                    c_add, c_btn = st.columns([3, 1])
+                            with c3:
+                                @st.dialog(f"Ficha: {teen['nome_completo']}")
+                                def modal_ficha(f, tid):
+                                    if f:
+                                        alerg_g = f.get('desc_alergia') if f.get('tem_alergia') else "Não"
+                                        alerg_m = f.get('desc_alergia_med') if f.get('tem_alergia_med') else "Não"
+                                        st.markdown(f"🚨 **Alergia:** {alerg_g}")
+                                        st.markdown(f"💊 **Med:** {alerg_m}")
+                                        st.markdown("---")
+                                        conds = [k.replace('cond_', '').title() for k, v in f.items() if k.startswith('cond_') and v is True]
+                                        if f.get('cond_outra'): conds.append(f.get('cond_outra'))
+                                        st.markdown(f"🏥 **Saúde:** {', '.join(conds) if conds else 'Ok'}")
+                                        st.markdown(f"💉 **Tratamento:** {f.get('tratamento_condicao','-')}")
+                                        st.markdown("---")
+                                        st.write(f"🚑 **Emergência:** {f.get('emergencia_nome','-')} {f.get('emergencia_tel','-')}")
+                                    else: st.warning("Sem ficha.")
+                                
+                                if st.button("📋", key=f"btn_f_{teen['id']}", help="Ver Ficha"): modal_ficha(f_resumo, teen['id'])
+                            
+                            st.markdown("<hr style='margin:5px 0; opacity:0.1'>", unsafe_allow_html=True)
+                    else:
+                        st.info("Quarto vazio.")
+
+                    st.markdown("#### ➕ Adicionar ao Quarto")
                     
-                    # --- CORREÇÃO DO ERRO INDEX ERROR ---
-                    # Cria um dicionário { "Nome (Idade)": ID_REAL }
-                    mapa_teens = {}
-                    for idx_sq, row_sq in sem_quarto.iterrows():
-                         label = f"{row_sq['nome_completo']} ({int(row_sq.get('idade',0))}a)"
-                         mapa_teens[label] = row_sq['id']
+                    sem_quarto = df_p[
+                        (pd.isna(df_p['id_quarto'])) & 
+                        (df_p['tipo_participante'] == 'Teen')
+                    ]
                     
-                    with c_add:
-                        # O selectbox mostra os nomes, mas nós vamos usar o mapa para pegar o ID depois
-                        sel_nome_display = st.selectbox("Selecione:", list(mapa_teens.keys()), key=f"add_sel_{qid}", label_visibility="collapsed")
+                    if sexo_quarto == "Masculino":
+                        sem_quarto = sem_quarto[sem_quarto['sexo'] == 'Masculino']
+                    elif sexo_quarto == "Feminino":
+                        sem_quarto = sem_quarto[sem_quarto['sexo'] == 'Feminino']
                     
-                    with c_btn:
-                        if st.button("Add", key=f"btn_add_{qid}"):
-                            # Pega o ID direto do dicionário, sem precisar filtrar o DataFrame de novo
-                            pid_add = mapa_teens[sel_nome_display]
-                            mover_participante(pid_add, qid); st.rerun()
-                else:
-                    if sexo_quarto in ["Masculino", "Feminino"]:
-                        st.info(f"Sem teens ({sexo_quarto}) disponíveis.")
+                    if not sem_quarto.empty:
+                        c_add, c_btn = st.columns([3, 1])
+                        mapa_teens = {}
+                        for idx_sq, row_sq in sem_quarto.iterrows():
+                             label = f"{row_sq['nome_completo']} ({int(row_sq.get('idade',0))}a)"
+                             mapa_teens[label] = row_sq['id']
+                        
+                        with c_add:
+                            sel_nome_display = st.selectbox("Selecione:", list(mapa_teens.keys()), key=f"add_sel_{qid}", label_visibility="collapsed")
+                        with c_btn:
+                            if st.button("Add", key=f"btn_add_{qid}"):
+                                pid_add = mapa_teens[sel_nome_display]
+                                mover_participante(pid_add, qid); st.rerun()
                     else:
                         st.success("Todos alocados!")
+            
+            st.write("") 
 
     else:
-        st.info("Nenhum quarto cadastrado ou encontrado no filtro.")
+        st.info("Nenhum quarto cadastrado ou encontrado na busca.")
 
     st.divider()
     with st.expander("➕ CADASTRAR NOVO QUARTO"):
         with st.form("new_room"):
             c1, c2 = st.columns(2)
             n_nome = c1.text_input("Nome Quarto")
-            
             lista_servos = []
             if not df_p.empty:
                 servos_df = df_p[df_p['tipo_participante'].str.contains("Servo", case=False, na=False)]
                 lista_servos = servos_df['nome_completo'].unique().tolist()
-            
             n_lider = c2.selectbox("Selecione o Líder (Servo):", lista_servos)
-            
             c3, c4 = st.columns(2)
             n_sexo = c3.selectbox("Gênero do Quarto", ["Masculino", "Feminino"])
             n_time = c4.selectbox("Time", ["Roxo", "Verde"])
