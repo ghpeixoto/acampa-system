@@ -141,7 +141,7 @@ def criar_quarto(nome, lider, tel, time_cor, sexo_quarto):
     sb = init_supabase()
     dados = {
         "nome": nome, 
-        "nome_lider": lider, 
+        "nome_lider": lider.replace('*', '').strip(), 
         "telefone_lider": tel, 
         "time_cor": time_cor,
         "sexo": sexo_quarto
@@ -189,7 +189,8 @@ with c_busca:
         if not df_p.empty:
             df_teens_busca = df_p[df_p['tipo_participante'] == 'Teen'].sort_values('nome_completo')
             for idx, row in df_teens_busca.iterrows():
-                label = f"{row['nome_completo']} ({int(row.get('idade',0))}a)"
+                nome_limpo = str(row['nome_completo']).replace('*', '').strip()
+                label = f"{nome_limpo} ({int(row.get('idade',0))}a)"
                 lista_opcoes.append(label)
                 mapa_busca_teens[label] = row.get('id_quarto') 
         
@@ -234,10 +235,11 @@ if st.session_state.modo_oracao:
 
 # --- LISTA DE QUARTOS ---
 else:
-    # ESTATÍSTICAS
+    # ESTATÍSTICAS E TIMES
     if not df_p.empty and not df_q.empty:
         df_teens_stats = df_p[df_p['tipo_participante'] == 'Teen']
         
+        # 1. Estatísticas Gerais
         tot_teens = len(df_teens_stats)
         tot_masc = len(df_teens_stats[df_teens_stats['sexo'] == 'Masculino'])
         tot_fem = len(df_teens_stats[df_teens_stats['sexo'] == 'Feminino'])
@@ -272,6 +274,62 @@ else:
         
         st.write("")
 
+        # ==================================================
+        # 🆕 ESTATÍSTICAS DOS TIMES (ÁGUIA E LEÃO)
+        # ==================================================
+        quartos_roxo = df_q[df_q['time_cor'] == 'Roxo']
+        quartos_verde = df_q[df_q['time_cor'] == 'Verde']
+        
+        ids_roxo = quartos_roxo['id'].tolist()
+        ids_verde = quartos_verde['id'].tolist()
+        
+        teens_aguia = df_teens_stats[df_teens_stats['id_quarto'].isin(ids_roxo)]
+        teens_leao = df_teens_stats[df_teens_stats['id_quarto'].isin(ids_verde)]
+        
+        # Dados Águia (Roxo)
+        tot_aguia = len(teens_aguia)
+        masc_aguia = len(teens_aguia[teens_aguia['sexo'] == 'Masculino'])
+        fem_aguia = len(teens_aguia[teens_aguia['sexo'] == 'Feminino'])
+        lideres_aguia = " • ".join([nome.replace('*', '').strip() for nome in quartos_roxo['nome_lider'].dropna().unique()]) if not quartos_roxo.empty else "Nenhum líder alocado"
+        
+        # Dados Leão (Verde)
+        tot_leao = len(teens_leao)
+        masc_leao = len(teens_leao[teens_leao['sexo'] == 'Masculino'])
+        fem_leao = len(teens_leao[teens_leao['sexo'] == 'Feminino'])
+        lideres_leao = " • ".join([nome.replace('*', '').strip() for nome in quartos_verde['nome_lider'].dropna().unique()]) if not quartos_verde.empty else "Nenhum líder alocado"
+
+        c_time1, c_time2 = st.columns(2)
+        
+        with c_time1:
+            st.markdown(f"""
+            <div class="stat-card" style="border-top: 4px solid #a855f7;">
+                <h4 style="color:#e9d5ff; margin-top:0;">🦅 Time Águia (Roxo)</h4>
+                <div style="display:flex; justify-content:space-around; margin-top:10px;">
+                    <div><span style="font-size:24px; font-weight:bold; color:white;">{tot_aguia}</span><br><span style="font-size:12px; color:#aaa;">Total</span></div>
+                    <div><span style="font-size:24px; font-weight:bold; color:#4da6ff;">{masc_aguia}</span><br><span style="font-size:12px; color:#aaa;">Meninos</span></div>
+                    <div><span style="font-size:24px; font-weight:bold; color:#ff66b2;">{fem_aguia}</span><br><span style="font-size:12px; color:#aaa;">Meninas</span></div>
+                </div>
+                <hr style="border: 1px solid #30475e; opacity: 0.5;">
+                <div style="color:#aaa; font-size:13px; text-align:center;"><b>Líderes:</b> {lideres_aguia}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with c_time2:
+            st.markdown(f"""
+            <div class="stat-card" style="border-top: 4px solid #10b981;">
+                <h4 style="color:#d1fae5; margin-top:0;">🦁 Time Leão (Verde)</h4>
+                <div style="display:flex; justify-content:space-around; margin-top:10px;">
+                    <div><span style="font-size:24px; font-weight:bold; color:white;">{tot_leao}</span><br><span style="font-size:12px; color:#aaa;">Total</span></div>
+                    <div><span style="font-size:24px; font-weight:bold; color:#4da6ff;">{masc_leao}</span><br><span style="font-size:12px; color:#aaa;">Meninos</span></div>
+                    <div><span style="font-size:24px; font-weight:bold; color:#ff66b2;">{fem_leao}</span><br><span style="font-size:12px; color:#aaa;">Meninas</span></div>
+                </div>
+                <hr style="border: 1px solid #30475e; opacity: 0.5;">
+                <div style="color:#aaa; font-size:13px; text-align:center;"><b>Líderes:</b> {lideres_leao}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.write("")
+
     # FILTROS E BUSCAS
     if filtro_sexo != "Todos" and not df_p.empty:
         df_p_view = df_p[df_p['sexo'] == filtro_sexo]
@@ -294,12 +352,9 @@ else:
     # === RENDERIZAÇÃO DOS QUARTOS (DIVIDIDO) ===
     
     if not df_q.empty:
-        # Separa os dataframes
         df_fem = df_q[df_q['sexo'] == 'Feminino']
         df_masc = df_q[df_q['sexo'] == 'Masculino']
         
-        # Cria uma lista de "Seções" para iterar e evitar duplicar código
-        # Tupla: (Titulo, DataFrame, IconeTitulo)
         secoes = [
             ("🌸 Quartos Femininos", df_fem),
             ("🔵 Quartos Masculinos", df_masc)
@@ -317,6 +372,7 @@ else:
                     cor_time = row.get('time_cor', '-')
                     sexo_quarto = row.get('sexo', 'Misto')
                     icone_q = "🔵" if sexo_quarto == "Masculino" else ("🌸" if sexo_quarto == "Feminino" else "🏠")
+                    nome_lider_limpo = str(row['nome_lider']).replace('*', '').strip()
                     
                     col_resumo, col_btn = st.columns([5, 1])
                     esta_aberto = (st.session_state.quarto_aberto == qid)
@@ -326,7 +382,7 @@ else:
                         st.markdown(f"""
                         <div style="background-color: #112240; {destaque} border-radius: 10px; padding: 10px; display: flex; align-items: center; justify-content: space-between;">
                             <span style="font-size:16px; font-weight:bold; color:white;">{icone_q} {row['nome']}</span>
-                            <span style="color:#ddd; font-size:14px;">👤 {row['nome_lider']}</span>
+                            <span style="color:#ddd; font-size:14px;">👤 {nome_lider_limpo}</span>
                             <span style="background-color:#0072ff; padding:2px 8px; border-radius:10px; color:white; font-size:12px;">👥 {qtd}</span>
                         </div>
                         """, unsafe_allow_html=True)
@@ -349,19 +405,20 @@ else:
                                     icone_sexo = "👦" if teen.get('sexo') == "Masculino" else "👧"
                                     idade_val = teen.get('idade', 0)
                                     idade_str = f"({idade_val} anos)" if idade_val > 0 else ""
+                                    nome_limpo = str(teen['nome_completo']).replace('*', '').strip()
                                     
                                     with c1: 
-                                        st.markdown(f"**{icone_sexo} {teen['nome_completo']} {idade_str}**")
+                                        st.markdown(f"**{icone_sexo} {nome_limpo} {idade_str}**")
                                         st.caption(f"Resp: {teen['nome_responsavel']}")
                                     
                                     f_resumo = carregar_ficha_resumo(teen['id'])
                                     tel_emerg = f_resumo.get('emergencia_tel') if f_resumo else None
-                                    link_zap = gerar_link_responsavel(row['nome_lider'], teen['nome_completo'], teen['celular_responsavel'], tel_emerg)
+                                    link_zap = gerar_link_responsavel(nome_lider_limpo, nome_limpo, teen['celular_responsavel'], tel_emerg)
                                     with c2:
                                         if link_zap: st.markdown(f"<a href='{link_zap}' target='_blank' class='zap-btn'>💬</a>", unsafe_allow_html=True)
 
                                     with c3:
-                                        @st.dialog(f"Ficha: {teen['nome_completo']}")
+                                        @st.dialog(f"Ficha: {nome_limpo}")
                                         def modal_ficha(f, tid):
                                             if f:
                                                 alerg_g = f.get('desc_alergia') if f.get('tem_alergia') else "Não"
@@ -399,7 +456,8 @@ else:
                                 c_add, c_btn = st.columns([3, 1])
                                 mapa_teens = {}
                                 for idx_sq, row_sq in sem_quarto.iterrows():
-                                     label = f"{row_sq['nome_completo']} ({int(row_sq.get('idade',0))}a)"
+                                     nome_livre_limpo = str(row_sq['nome_completo']).replace('*', '').strip()
+                                     label = f"{nome_livre_limpo} ({int(row_sq.get('idade',0))}a)"
                                      mapa_teens[label] = row_sq['id']
                                 
                                 with c_add:
@@ -424,7 +482,8 @@ else:
             lista_servos = []
             if not df_p.empty:
                 servos_df = df_p[df_p['tipo_participante'].str.contains("Servo", case=False, na=False)]
-                lista_servos = servos_df['nome_completo'].unique().tolist()
+                lista_servos = [str(n).replace('*', '').strip() for n in servos_df['nome_completo'].unique().tolist()]
+            
             n_lider = c2.selectbox("Selecione o Líder (Servo):", lista_servos)
             c3, c4 = st.columns(2)
             n_sexo = c3.selectbox("Gênero do Quarto", ["Masculino", "Feminino"])
@@ -434,7 +493,8 @@ else:
                 if n_nome and n_lider:
                     n_tel_auto = ""
                     try:
-                        dados_servo = servos_df[servos_df['nome_completo'] == n_lider].iloc[0]
+                        # Busca o telefone usando aproximação do nome (já que removemos asteriscos)
+                        dados_servo = servos_df[servos_df['nome_completo'].str.contains(n_lider, case=False, na=False)].iloc[0]
                         n_tel_auto = dados_servo.get('celular_responsavel', '')
                     except: pass
                     
