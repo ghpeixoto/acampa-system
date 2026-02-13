@@ -9,8 +9,13 @@ from supabase import create_client, Client
 # =======================================================
 st.set_page_config(page_title="Check-in Acampa", layout="wide", page_icon="✅")
 
-SUPABASE_URL = "https://gerzjzmkbzpkdhrxacka.supabase.co"
-SUPABASE_KEY = "sb_secret_BcGLoGEXRfVMA-ajLuqhdw_0zlAFUmn"
+# Tenta pegar dos secrets, se não tiver usa o hardcoded
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+except:
+    SUPABASE_URL = "https://gerzjzmkbzpkdhrxacka.supabase.co"
+    SUPABASE_KEY = "sb_secret_BcGLoGEXRfVMA-ajLuqhdw_0zlAFUmn"
 
 # =======================================================
 # 2. ESTILO VISUAL
@@ -248,7 +253,7 @@ else:
         c_servos = len(df_servos[df_servos['check_in'] == True])
         f_servos = t_servos - c_servos
     else:
-        t_teens = c_teens = f_teen = 0
+        t_teens = c_teens = f_teens = 0
         t_servos = c_servos = f_servos = 0
 
     st.markdown("##### 🔵 Status Teens")
@@ -300,7 +305,11 @@ else:
         for idx, row in df_show.head(limit).iterrows():
             with st.container():
                 id_part = row['id']
-                nome = str(row['nome_completo'])
+                
+                # --- CORREÇÃO AQUI: LIMPEZA DO NOME ---
+                # Remove asteriscos e espaços extras para evitar formatação quebrada
+                nome = str(row['nome_completo']).replace('*', '').strip()
+                
                 resp = str(row.get('nome_responsavel', '-'))
                 tipo = str(row.get('tipo_participante', 'Teen'))
                 ja_chegou = bool(row.get('check_in', False))
@@ -308,8 +317,11 @@ else:
                 k1, k2, k3, k4 = st.columns([3, 1, 2, 1.5])
                 
                 with k1:
-                    if ja_chegou: st.markdown(f"✅ ~~{nome}~~")
-                    else: st.markdown(f"**{nome}**")
+                    if ja_chegou: 
+                        st.markdown(f"✅ ~~{nome}~~")
+                    else: 
+                        # Mantém o negrito do markdown, mas agora com o nome limpo
+                        st.markdown(f"**{nome}**")
                 
                 with k2:
                     cor = "#00c6ff" if tipo == "Teen" else "#d946ef"
@@ -320,15 +332,12 @@ else:
                 
                 with k4:
                     if ja_chegou:
-                        # JÁ CHEGOU: MOSTRA HORA + BOTÃO DE ADD GRANA
                         hora = pd.to_datetime(row.get('data_hr_check_in')).strftime('%H:%M') if row.get('data_hr_check_in') else ""
                         st.caption(f"Chegou {hora}")
                         
-                        # Botão para adicionar grana se esqueceu
                         if st.button("💰 Add $", key=f"add_{id_part}", type="secondary"):
                             modal_deposito_extra(id_part, nome, st.session_state.operador_checkin)
                     else:
-                        # NÃO CHEGOU: BOTÃO DE CHECK-IN PADRÃO
                         if st.button("📍 Check-in", key=f"btn_{id_part}", type="secondary"):
                             modal_checkin(id_part, nome, resp, tipo, st.session_state.operador_checkin)
                 
