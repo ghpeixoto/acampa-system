@@ -98,7 +98,7 @@ with col5:
     st.write("") # Espaçamento
     # Botão Escala de Oração Atualizado
     if st.button("🙏\nESCALA DE ORAÇÃO\n(Servos)", use_container_width=True):
-        st.switch_page("pages/Escala_de_Oracao.py")
+        st.switch_page("pages/Escala.py")
 
 with col6:
     st.empty()
