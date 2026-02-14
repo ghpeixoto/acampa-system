@@ -90,7 +90,18 @@ def salvar_ficha_parcial(dados):
     else: sb.table("ficha_medica").insert(dados).execute()
     return True
 
-# --- AGENDAMENTO ---
+# --- AGENDAMENTO E REMÉDIOS CADASTRADOS ---
+def carregar_medicacoes_pendentes_part(id_part):
+    sb = init_supabase()
+    res = sb.table("medicacoes").select("*").eq("id_participante", int(id_part)).eq("status", "Pendente").execute()
+    return pd.DataFrame(res.data)
+
+def excluir_medicacao(id_part, nome_medicamento):
+    sb = init_supabase()
+    # Exclui todas as doses pendentes do participante para este remédio específico
+    sb.table("medicacoes").delete().eq("id_participante", int(id_part)).eq("nome_medicamento", nome_medicamento).eq("status", "Pendente").execute()
+    return True
+
 def agendar_medicacao_auto(id_part, nome_part, remedio, dose, data_ini, freq_tipo, param_horario, dias, lider, tel_lider):
     sb = init_supabase()
     lista_inserts = []
@@ -232,10 +243,7 @@ with tab_ficha:
             
             plano = st.text_input("Plano de Saúde (Nome/Nº):", value=f.get('desc_plano', ""))
             
-            st.markdown("#### 4. Emergência (Se diferente dos pais)")
-            ec1, ec2 = st.columns(2)
-            em_nome = ec1.text_input("Nome Contato", value=f.get('emergencia_nome', ""))
-            em_tel = ec2.text_input("Telefone", value=f.get('emergencia_tel', ""))
+            # --- REMOVIDO: Emergência 4 ---
             
             if st.form_submit_button("💾 SALVAR DADOS DE SAÚDE"):
                 dados_salvar = {
@@ -247,21 +255,44 @@ with tab_ficha:
                     "cond_outra": outra_cond, "tratamento_condicao": trat_cond,
                     "e_sonambulo": sonambulo, "tem_enurese": enurese,
                     "tem_restricao_fisica": rest_fisica, "desc_restricao_fisica": desc_rest,
-                    "desc_plano": plano, "emergencia_nome": em_nome, "emergencia_tel": em_tel
+                    "desc_plano": plano
                 }
                 if salvar_ficha_parcial(dados_salvar):
-                    st.success("Dados salvos!"); time.sleep(1); st.rerun()
+                    st.success("Dados de saúde salvos com sucesso!"); time.sleep(1); st.rerun()
 
         st.divider()
         
-        # --- PARTE 2: MEDICAMENTOS ---
-        st.markdown("#### 💊 3. Está tomando algum medicamento?")
+        # --- PARTE 2: MEDICAMENTOS (LISTAGEM + INSERÇÃO) ---
+        st.markdown("#### 💊 Medicamentos do Participante")
         
-        toma_remedio = st.checkbox("Sim, estou tomando", value=False)
+        df_meds = carregar_medicacoes_pendentes_part(pid)
         
-        if toma_remedio:
-            st.markdown("##### Cadastrar Medicamento e Gerar Alertas")
+        # 1. Mostra os remédios que já estão cadastrados
+        if not df_meds.empty:
+            st.markdown("##### 📋 Rotinas Ativas (Doses Agendadas)")
+            meds_unicos = df_meds['nome_medicamento'].unique()
             
+            for med in meds_unicos:
+                doses = df_meds[df_meds['nome_medicamento'] == med]
+                qtd_doses = len(doses)
+                dosagem = doses.iloc[0]['dosagem']
+                
+                c_med_info, c_med_del = st.columns([4, 1])
+                with c_med_info:
+                    st.markdown(f"<div style='background-color:#112240; padding:10px; border-radius:8px; border-left: 4px solid #00c6ff;'><b>{med}</b> | Dose: {dosagem} <br><small style='color:#aaa'><i>{qtd_doses} doses pendentes aguardando baixa</i></small></div>", unsafe_allow_html=True)
+                with c_med_del:
+                    st.write("") # Espaçamento para alinhar
+                    if st.button("🗑️ Cancelar Rotina", key=f"del_{pid}_{med}", help=f"Exclui as {qtd_doses} doses pendentes deste remédio"):
+                        excluir_medicacao(pid, med)
+                        st.toast(f"Rotina de {med} cancelada com sucesso!")
+                        time.sleep(1)
+                        st.rerun()
+            st.write("---")
+        else:
+            st.info("Nenhum medicamento agendado no momento.")
+
+        # 2. Formulário expansível para adicionar um novo remédio
+        with st.expander("➕ Cadastrar e Agendar Novo Medicamento", expanded=False):
             c_med1, c_med2 = st.columns(2)
             remedio_nome = c_med1.text_input("Nome do Medicamento")
             dose = c_med2.text_input("Dosagem (Ex: 1cp)")
@@ -299,14 +330,15 @@ with tab_ficha:
             
             if col_save.button("💾 SALVAR E AGENDAR", type="primary"):
                 if remedio_nome and valido:
-                    # Permite agendar mesmo se 'lider' for 'Sem Quarto'
                     ok, qtd = agendar_medicacao_auto(
                         pid, sel_nome, remedio_nome, dose, 
                         data_base, freq_tipo, param_horario, dias_duracao,
                         part['lider'], part['tel_lider']
                     )
-                    if ok: st.success(f"{qtd} horários agendados!"); st.balloons(); time.sleep(2); st.rerun()
-                else: st.error("Preencha todos os campos corretamente.")
+                    if ok: 
+                        st.success(f"{qtd} horários agendados com sucesso!"); st.balloons(); time.sleep(2); st.rerun()
+                else: 
+                    st.error("Preencha todos os campos e certifique-se de que a hora está no formato correto (HH:MM).")
 
 # --- TAB 3: RESPONSAVEL ---
 with tab_equipe:
