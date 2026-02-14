@@ -209,7 +209,7 @@ def cadastrar_participante(nome, resp, cel, tipo, sexo, idade, saldo_inicial, op
     supabase = init_supabase()
     try:
         res = supabase.table("participantes").insert({
-            "nome_completo": nome, 
+            "nome_completo": nome.replace('*', '').strip(), 
             "nome_responsavel": resp, 
             "celular_responsavel": cel,
             "tipo_participante": tipo, 
@@ -222,7 +222,7 @@ def cadastrar_participante(nome, resp, cel, tipo, sexo, idade, saldo_inicial, op
             dh = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             supabase.table("transacoes").insert({
                 "id_participante": res.data[0]['id'], 
-                "nome_participante": nome, 
+                "nome_participante": nome.replace('*', '').strip(), 
                 "data_hora": dh,
                 "item_descricao": "Saldo Inicial (Cadastro)", 
                 "valor": float(saldo_inicial), 
@@ -238,7 +238,7 @@ def atualizar_participante(id_part, nome, resp, cel, tipo, sexo, idade):
     supabase = init_supabase()
     try:
         supabase.table("participantes").update({
-            "nome_completo": nome, 
+            "nome_completo": nome.replace('*', '').strip(), 
             "nome_responsavel": resp, 
             "celular_responsavel": cel, 
             "tipo_participante": tipo,
@@ -450,16 +450,30 @@ elif menu == "🍔 Nova Venda":
             cp, cc = st.columns([1.5, 1])
             with cp:
                 st.subheader("Produtos")
+                
+                # --- NOVA BARRA DE PESQUISA DE PRODUTOS ---
+                busca_produto = st.text_input("🔍 Buscar produto...", placeholder="Nome do doce, bebida...", label_visibility="collapsed")
+                
                 if not df_prod.empty:
-                    cols = st.columns(3)
-                    for i, r in df_prod.iterrows():
-                        with cols[i%3]:
-                            with st.container(border=True):
-                                st.markdown(f"**{r['Produto']}**")
-                                st.markdown(f"{fmt_real(r['Preco'])}")
-                                if st.button("➕", key=f"ad_{r['ID']}", disabled=r['Estoque']<=0, use_container_width=True):
-                                    st.session_state.carrinho.append({"id_produto": r['ID'], "item": r['Produto'], "preco": float(r['Preco'])})
-                                    st.rerun()
+                    df_prod_show = df_prod.copy()
+                    
+                    # Filtra os produtos baseados no campo de busca
+                    if busca_produto:
+                        df_prod_show = df_prod_show[df_prod_show['Produto'].str.contains(busca_produto, case=False, na=False)]
+                    
+                    if df_prod_show.empty:
+                        st.info("Nenhum produto encontrado com esse nome.")
+                    else:
+                        cols = st.columns(3)
+                        # Usando enumerate para espalhar certinho as colunas independentemente do índice original
+                        for idx, (original_idx, r) in enumerate(df_prod_show.iterrows()):
+                            with cols[idx % 3]:
+                                with st.container(border=True):
+                                    st.markdown(f"**{r['Produto']}**")
+                                    st.markdown(f"{fmt_real(r['Preco'])}")
+                                    if st.button("➕", key=f"ad_{r['ID']}", disabled=r['Estoque']<=0, use_container_width=True):
+                                        st.session_state.carrinho.append({"id_produto": r['ID'], "item": r['Produto'], "preco": float(r['Preco'])})
+                                        st.rerun()
             with cc:
                 st.subheader("Carrinho")
                 if st.session_state.carrinho:
@@ -631,7 +645,7 @@ elif menu == "👥 Participantes":
 
             ld.append({
                 "ID": pid, 
-                "Nome": r['Nome'], 
+                "Nome": str(r['Nome']).replace('*', '').strip(), 
                 "Tipo": r.get('tipo_participante','Teen'), 
                 "Sexo": r.get('sexo', '-'),
                 "Idade": r.get('idade', 0),
