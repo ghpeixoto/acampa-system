@@ -83,7 +83,7 @@ if df_escala.empty:
 else:
     # --- BARRA DE BUSCA ---
     st.markdown("### 🔍 Ache o seu horário")
-    busca_nome = st.text_input("Digite seu nome para filtrar a lista:", placeholder="Ex: Thiago...")
+    busca_nome = st.text_input("Digite seu nome para filtrar a lista:", placeholder="Seu nome...")
     
     if busca_nome:
         df_escala = df_escala[df_escala['nome_servo'].str.contains(busca_nome, case=False, na=False)]
