@@ -93,6 +93,7 @@ def init_supabase():
     try: return create_client(SUPABASE_URL, SUPABASE_KEY)
     except: return None
 
+@st.cache_data(ttl=15)
 def carregar_dados():
     sb = init_supabase()
     q = sb.table("quartos").select("*").order("nome").execute()
@@ -114,13 +115,25 @@ def carregar_dados():
 def mover_participante(id_part, id_quarto_destino):
     sb = init_supabase()
     sb.table("participantes").update({"id_quarto": id_quarto_destino}).eq("id", id_part).execute()
+    st.cache_data.clear()
     return True
 
+@st.cache_data(ttl=60)
 def carregar_ficha_resumo(id_part):
     sb = init_supabase()
     res = sb.table("ficha_medica").select("*").eq("id_participante", id_part).execute()
     if res.data: return res.data[0]
     return None
+
+@st.cache_data(ttl=60)
+def carregar_medicacoes(id_part):
+    sb = init_supabase()
+    try:
+        # Busca remédios cadastrados para o teen
+        res = sb.table("medicacoes").select("*").eq("id_participante", id_part).execute()
+        return res.data if res.data else []
+    except:
+        return []
 
 def salvar_oracao(texto):
     sb = init_supabase()
@@ -147,6 +160,7 @@ def criar_quarto(nome, lider, tel, time_cor, sexo_quarto):
         "sexo": sexo_quarto
     }
     sb.table("quartos").insert(dados).execute()
+    st.cache_data.clear() 
     return True
 
 def gerar_link_responsavel(nome_lider, nome_teen, tel_resp, tel_emergencia):
@@ -158,6 +172,11 @@ def gerar_link_responsavel(nome_lider, nome_teen, tel_resp, tel_emergencia):
     tel_limpo = "".join([c for c in str(telefone_final) if c.isdigit()])
     msg = f"Graça e paz, tudo bom? Somos do Acampateens, meu nome é {nome_lider} responsavel pelo(a) {nome_teen}"
     return f"https://wa.me/55{tel_limpo}?text={quote(msg)}"
+
+def limpar_none(valor):
+    if pd.isna(valor) or valor is None or str(valor).strip().lower() in ['none', 'nan']:
+        return ""
+    return str(valor).strip()
 
 # =======================================================
 # 3. INTERFACE
@@ -235,11 +254,9 @@ if st.session_state.modo_oracao:
 
 # --- LISTA DE QUARTOS ---
 else:
-    # ESTATÍSTICAS E TIMES
     if not df_p.empty and not df_q.empty:
         df_teens_stats = df_p[df_p['tipo_participante'] == 'Teen']
         
-        # 1. Estatísticas Gerais
         tot_teens = len(df_teens_stats)
         tot_masc = len(df_teens_stats[df_teens_stats['sexo'] == 'Masculino'])
         tot_fem = len(df_teens_stats[df_teens_stats['sexo'] == 'Feminino'])
@@ -274,9 +291,7 @@ else:
         
         st.write("")
 
-        # ==================================================
-        # 🆕 ESTATÍSTICAS DOS TIMES (ÁGUIA E LEÃO)
-        # ==================================================
+        # ESTATÍSTICAS DOS TIMES (ÁGUIA E LEÃO)
         quartos_roxo = df_q[df_q['time_cor'] == 'Roxo']
         quartos_verde = df_q[df_q['time_cor'] == 'Verde']
         
@@ -286,13 +301,11 @@ else:
         teens_aguia = df_teens_stats[df_teens_stats['id_quarto'].isin(ids_roxo)]
         teens_leao = df_teens_stats[df_teens_stats['id_quarto'].isin(ids_verde)]
         
-        # Dados Águia (Roxo)
         tot_aguia = len(teens_aguia)
         masc_aguia = len(teens_aguia[teens_aguia['sexo'] == 'Masculino'])
         fem_aguia = len(teens_aguia[teens_aguia['sexo'] == 'Feminino'])
         lideres_aguia = " • ".join([nome.replace('*', '').strip() for nome in quartos_roxo['nome_lider'].dropna().unique()]) if not quartos_roxo.empty else "Nenhum líder alocado"
         
-        # Dados Leão (Verde)
         tot_leao = len(teens_leao)
         masc_leao = len(teens_leao[teens_leao['sexo'] == 'Masculino'])
         fem_leao = len(teens_leao[teens_leao['sexo'] == 'Feminino'])
@@ -330,7 +343,6 @@ else:
 
         st.write("")
 
-    # FILTROS E BUSCAS
     if filtro_sexo != "Todos" and not df_p.empty:
         df_p_view = df_p[df_p['sexo'] == filtro_sexo]
         if not df_q.empty and 'sexo' in df_q.columns:
@@ -349,7 +361,7 @@ else:
             quarto_destaque_id = quarto_encontrado
             st.session_state.quarto_aberto = quarto_encontrado
 
-    # === RENDERIZAÇÃO DOS QUARTOS (DIVIDIDO) ===
+    # === RENDERIZAÇÃO DOS QUARTOS ===
     
     if not df_q.empty:
         df_fem = df_q[df_q['sexo'] == 'Feminino']
@@ -418,23 +430,44 @@ else:
                                         if link_zap: st.markdown(f"<a href='{link_zap}' target='_blank' class='zap-btn'>💬</a>", unsafe_allow_html=True)
 
                                     with c3:
+                                        # PASSAMOS OS DADOS DO RESPONSÁVEL PARA A FICHA
                                         @st.dialog(f"Ficha: {nome_limpo}")
-                                        def modal_ficha(f, tid):
+                                        def modal_ficha(f, tid, resp_nome, resp_cel):
                                             if f:
-                                                alerg_g = f.get('desc_alergia') if f.get('tem_alergia') else "Não"
-                                                alerg_m = f.get('desc_alergia_med') if f.get('tem_alergia_med') else "Não"
+                                                alerg_g = limpar_none(f.get('desc_alergia')) if f.get('tem_alergia') else "Não"
+                                                alerg_m = limpar_none(f.get('desc_alergia_med')) if f.get('tem_alergia_med') else "Não"
+                                                
                                                 st.markdown(f"🚨 **Alergia:** {alerg_g}")
-                                                st.markdown(f"💊 **Med:** {alerg_m}")
+                                                st.markdown(f"💊 **Alergia ao Medicamento:** {alerg_m}")
                                                 st.markdown("---")
+                                                
                                                 conds = [k.replace('cond_', '').title() for k, v in f.items() if k.startswith('cond_') and v is True]
-                                                if f.get('cond_outra'): conds.append(f.get('cond_outra'))
+                                                outra_cond = limpar_none(f.get('cond_outra'))
+                                                if outra_cond: conds.append(outra_cond)
+                                                
                                                 st.markdown(f"🏥 **Saúde:** {', '.join(conds) if conds else 'Ok'}")
-                                                st.markdown(f"💉 **Tratamento:** {f.get('tratamento_condicao','-')}")
+                                                
+                                                tratamento = limpar_none(f.get('tratamento_condicao'))
+                                                st.markdown(f"💉 **Tratamento:** {tratamento if tratamento else 'Nenhum'}")
                                                 st.markdown("---")
-                                                st.write(f"🚑 **Emergência:** {f.get('emergencia_nome','-')} {f.get('emergencia_tel','-')}")
+                                                
+                                                # CARREGA E LISTA MEDICAMENTOS
+                                                meds = carregar_medicacoes(tid)
+                                                if meds:
+                                                    # Pega o nome do medicamento (tenta algumas variações comuns de nome da coluna)
+                                                    nomes_meds = [m.get('nome_medicamento') or m.get('medicamento') or m.get('nome', 'Remédio cadastrado') for m in meds]
+                                                    st.markdown(f"💊 **Remédios Cadastrados:** {', '.join(nomes_meds)}")
+                                                else:
+                                                    st.markdown("💊 **Remédios Cadastrados:** Nenhum")
+                                                
+                                                # PUXA EMERGÊNCIA DO RESPONSÁVEL
+                                                resp_nome_limpo = limpar_none(resp_nome)
+                                                resp_cel_limpo = limpar_none(resp_cel)
+                                                st.write(f"🚑 **Emergência:** {resp_nome_limpo} - {resp_cel_limpo}")
                                             else: st.warning("Sem ficha.")
                                         
-                                        if st.button("📋", key=f"btn_f_{teen['id']}", help="Ver Ficha"): modal_ficha(f_resumo, teen['id'])
+                                        if st.button("📋", key=f"btn_f_{teen['id']}", help="Ver Ficha"): 
+                                            modal_ficha(f_resumo, teen['id'], teen['nome_responsavel'], teen['celular_responsavel'])
                                     
                                     st.markdown("<hr style='margin:5px 0; opacity:0.1'>", unsafe_allow_html=True)
                             else:
@@ -493,7 +526,6 @@ else:
                 if n_nome and n_lider:
                     n_tel_auto = ""
                     try:
-                        # Busca o telefone usando aproximação do nome (já que removemos asteriscos)
                         dados_servo = servos_df[servos_df['nome_completo'].str.contains(n_lider, case=False, na=False)].iloc[0]
                         n_tel_auto = dados_servo.get('celular_responsavel', '')
                     except: pass
