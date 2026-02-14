@@ -68,7 +68,7 @@ with col1:
     st.write("") # Espaçamento
     # Botão Check-in
     if st.button("✅\nCHECK-IN\n(Portaria)", use_container_width=True):
-        st.switch_page("pages/Check_in.py")
+        st.switch_page("pages/Checkin.py")
 
 with col2:
     st.write("") # Espaçamento
@@ -82,14 +82,26 @@ col3, col4 = st.columns(2)
 with col3:
     st.write("") # Espaçamento
     # Botão Enfermaria
-    if st.button("💊\nMedicações\n(Lista)", use_container_width=True):
+    if st.button("💊\nMEDICAÇÕES\n(Lista)", use_container_width=True):
         st.switch_page("pages/Medicacoes.py")
 
 with col4:
     st.write("") # Espaçamento
-    # Botão Líderes (ATIVADO)
+    # Botão Líderes
     if st.button("🛏️\nLÍDERES\n(Quartos)", use_container_width=True):
         st.switch_page("pages/Lideres.py")
+
+# --- LINHA 3 ---
+col5, col6 = st.columns(2)
+
+with col5:
+    st.write("") # Espaçamento
+    # Botão Escala de Oração Atualizado
+    if st.button("🙏\nESCALA DE ORAÇÃO\n(Servos)", use_container_width=True):
+        st.switch_page("pages/Escala_de_Oracao.py")
+
+with col6:
+    st.empty()
 
 # Rodapé
 st.markdown("---")
